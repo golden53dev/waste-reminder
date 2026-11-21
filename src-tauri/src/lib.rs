@@ -6,6 +6,12 @@ mod config;
 mod schedule;
 mod scheduler;
 
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct FractionItem {
+    pub key: String,
+    pub label: String,
+}
+
 fn open_alarm_window(handle: &tauri::AppHandle, fullscreen: bool) {
     if handle.get_webview_window("alarm").is_none() {
         let mut b = WebviewWindowBuilder::new(
@@ -26,6 +32,37 @@ fn open_alarm_window(handle: &tauri::AppHandle, fullscreen: bool) {
 }
 
 #[tauri::command]
+fn open_options(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("options") {
+        let _ = w.show();
+        let _ = w.set_focus();
+    } else {
+        WebviewWindowBuilder::new(
+            &app,
+            "options",
+            WebviewUrl::App("options.html".into()),
+        )
+        .title("Waste Reminder - Opcje")
+        .inner_size(460.0, 520.0)
+        .resizable(false)
+        .center()
+        .build()
+        .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn get_config(app: tauri::AppHandle) -> Result<config::Config, String> {
+    let path = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| e.to_string())?
+        .join("config.json");
+    config::Config::load(&path)
+}
+
+#[tauri::command]
 fn ack_alarm(app: tauri::AppHandle) -> Result<(), String> {
     let path = app
         .path()
@@ -42,25 +79,39 @@ fn ack_alarm(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn alarm_fractions(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+fn alarm_fractions(app: tauri::AppHandle) -> Result<Vec<FractionItem>, String> {
     let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
     let cfg = config::Config::load(&dir.join("config.json"))?;
     let s = schedule::Schedules::load_dir(&dir)?;
     let now = chrono::Local::now().naive_local();
-    let keys = match scheduler::decide(now, &cfg, &s) {
-        scheduler::Decision::Alarm(k) => k,
+    let items = match scheduler::decide(now, &cfg, &s) {
+        scheduler::Decision::Alarm(keys) => s
+            .fractions_for(now.date())
+            .into_iter()
+            .filter(|(k, _)| keys.contains(&k.to_string()))
+            .map(|(k, f)| FractionItem {
+                key: k.to_string(),
+                label: f.label.clone(),
+            })
+            .collect(),
         _ => {
             if let Some(next_d) = s.next_pickup(now.date()) {
                 s.fractions_for(next_d)
                     .into_iter()
-                    .map(|(k, _)| k.to_string())
+                    .map(|(k, f)| FractionItem {
+                        key: k.to_string(),
+                        label: f.label.clone(),
+                    })
                     .collect()
             } else {
-                vec!["komunalne".to_string()]
+                vec![FractionItem {
+                    key: "komunalne".to_string(),
+                    label: "Zmieszane".to_string(),
+                }]
             }
         }
     };
-    Ok(keys)
+    Ok(items)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -120,10 +171,11 @@ pub fn run() {
                 .checked(autolaunch.is_enabled().unwrap_or(cfg.autostart))
                 .build(app)?;
             let test_item = MenuItemBuilder::with_id("test_alarm", "Testuj alarm").build(app)?;
+            let options_item = MenuItemBuilder::with_id("options", "Opcje...").build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "Zakończ").build(app)?;
 
             let menu = MenuBuilder::new(app)
-                .items(&[&next_item, &enabled_item, &autostart_item, &test_item, &quit])
+                .items(&[&next_item, &enabled_item, &autostart_item, &test_item, &options_item, &quit])
                 .build()?;
 
             TrayIconBuilder::new()
@@ -159,6 +211,9 @@ pub fn run() {
                                 let c = config::Config::load(&config_path).unwrap_or_default();
                                 open_alarm_window(app, c.fullscreen);
                             }
+                            "options" => {
+                                let _ = open_options(app.clone());
+                            }
                             _ => {}
                         }
                     }
@@ -185,7 +240,12 @@ pub fn run() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![ack_alarm, alarm_fractions])
+        .invoke_handler(tauri::generate_handler![
+            ack_alarm,
+            alarm_fractions,
+            open_options,
+            get_config
+        ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|_app, event| {
