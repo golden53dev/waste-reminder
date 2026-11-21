@@ -19,6 +19,28 @@ pub struct SoundItem {
     pub path: String,
 }
 
+#[derive(serde::Serialize, Clone, Debug)]
+pub struct ImportResult {
+    pub success: bool,
+    pub message: String,
+    pub year: Option<i32>,
+}
+
+fn open_expired_window(handle: &tauri::AppHandle) {
+    if handle.get_webview_window("expired").is_none() {
+        let _ = WebviewWindowBuilder::new(
+            handle,
+            "expired",
+            WebviewUrl::App("expired.html".into()),
+        )
+        .title("Harmonogram wygasł")
+        .inner_size(440.0, 320.0)
+        .resizable(false)
+        .center()
+        .build();
+    }
+}
+
 fn open_alarm_window(handle: &tauri::AppHandle, fullscreen: bool) {
     if handle.get_webview_window("alarm").is_none() {
         let mut b = WebviewWindowBuilder::new(
@@ -193,6 +215,86 @@ fn close_window(window: tauri::WebviewWindow) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn import_schedule_dialog(app: tauri::AppHandle) -> Result<ImportResult, String> {
+    let picked = tauri::async_runtime::spawn_blocking({
+        let app = app.clone();
+        move || {
+            app.dialog()
+                .file()
+                .add_filter("JSON Harmonogramu", &["json"])
+                .blocking_pick_file()
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let path = match picked {
+        Some(p) => match p {
+            tauri_plugin_dialog::FilePath::Path(buf) => buf,
+            tauri_plugin_dialog::FilePath::Url(url) => match url.to_file_path() {
+                Ok(p) => p,
+                Err(_) => {
+                    return Ok(ImportResult {
+                        success: false,
+                        message: "Niepoprawna ścieżka pliku".to_string(),
+                        year: None,
+                    });
+                }
+            },
+        },
+        None => {
+            return Ok(ImportResult {
+                success: false,
+                message: "Anulowano wybór pliku".to_string(),
+                year: None,
+            });
+        }
+    };
+
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(e) => {
+            return Ok(ImportResult {
+                success: false,
+                message: format!("Błąd odczytu pliku: {e}"),
+                year: None,
+            });
+        }
+    };
+
+    let parsed = match schedule::Schedule::parse(&content) {
+        Ok(s) => s,
+        Err(e) => {
+            return Ok(ImportResult {
+                success: false,
+                message: format!("Niepoprawny harmonogram: {e}"),
+                year: None,
+            });
+        }
+    };
+
+    let target_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&target_dir).map_err(|e| e.to_string())?;
+    let target_file = target_dir.join(format!("trash_schedule_{}.json", parsed.year));
+    if let Err(e) = std::fs::write(&target_file, &content) {
+        return Ok(ImportResult {
+            success: false,
+            message: format!("Błąd zapisu pliku: {e}"),
+            year: None,
+        });
+    }
+
+    Ok(ImportResult {
+        success: true,
+        message: format!(
+            "Pomyślnie wczytano harmonogram na rok {} ({})",
+            parsed.year, parsed.region
+        ),
+        year: Some(parsed.year),
+    })
+}
+
+#[tauri::command]
 fn ack_alarm(app: tauri::AppHandle) -> Result<(), String> {
     let path = app
         .path()
@@ -303,13 +405,14 @@ pub fn run() {
                 .build(app)?;
             let test_item = MenuItemBuilder::with_id("test_alarm", "Testuj alarm").build(app)?;
             let options_item = MenuItemBuilder::with_id("options", "Opcje...").build(app)?;
+            let import_item = MenuItemBuilder::with_id("import_json", "Wczytaj nowy JSON...").build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "Zakończ").build(app)?;
 
             let menu = MenuBuilder::new(app)
-                .items(&[&next_item, &enabled_item, &autostart_item, &test_item, &options_item, &quit])
+                .items(&[&next_item, &enabled_item, &autostart_item, &test_item, &options_item, &import_item, &quit])
                 .build()?;
 
-            TrayIconBuilder::new()
+            TrayIconBuilder::with_id("main_tray")
                 .icon(app.default_window_icon().unwrap().clone())
                 .tooltip("Waste Reminder")
                 .menu(&menu)
@@ -345,6 +448,9 @@ pub fn run() {
                             "options" => {
                                 let _ = open_options(app.clone());
                             }
+                            "import_json" => {
+                                open_expired_window(app);
+                            }
                             _ => {}
                         }
                     }
@@ -353,6 +459,7 @@ pub fn run() {
 
             let handle = app.handle().clone();
             std::thread::spawn(move || {
+                let mut last_expired_shown_date: Option<chrono::NaiveDate> = None;
                 loop {
                     let now = chrono::Local::now().naive_local();
                     let cfg = config::Config::load(&dir.join("config.json")).unwrap_or_default();
@@ -360,8 +467,30 @@ pub fn run() {
                         Ok(s) => {
                             let d = scheduler::decide(now, &cfg, &s);
                             println!("[scheduler] {now} -> {:?}", d);
-                            if let scheduler::Decision::Alarm(_) = d {
-                                open_alarm_window(&handle, cfg.fullscreen);
+                            match d {
+                                scheduler::Decision::Alarm(_) => {
+                                    open_alarm_window(&handle, cfg.fullscreen);
+                                }
+                                scheduler::Decision::Expired => {
+                                    if last_expired_shown_date != Some(now.date()) {
+                                        last_expired_shown_date = Some(now.date());
+                                        open_expired_window(&handle);
+                                    }
+                                }
+                                scheduler::Decision::Nothing => {}
+                            }
+
+                            if let Some(tray) = handle.tray_by_id("main_tray") {
+                                if scheduler::is_warning(now, &cfg, &s) {
+                                    if let Some(last) = s.last_date() {
+                                        let left = (last - now.date()).num_days();
+                                        let _ = tray.set_tooltip(Some(format!(
+                                            "Harmonogram kończy się za {left} dni"
+                                        )));
+                                    }
+                                } else {
+                                    let _ = tray.set_tooltip(Some("Waste Reminder".to_string()));
+                                }
                             }
                         }
                         Err(e) => println!("[scheduler] błąd danych: {e}"),
@@ -379,7 +508,8 @@ pub fn run() {
             save_config,
             get_available_sounds,
             pick_sound_file,
-            close_window
+            close_window,
+            import_schedule_dialog
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
