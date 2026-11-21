@@ -17,6 +17,7 @@ pub struct Config {
     pub catch_up_on_start: bool,
     pub warn_days_before_end: u32,
     pub last_triggered_date: Option<NaiveDate>,
+    pub autostart: bool,
 }
 
 impl Default for Config {
@@ -33,6 +34,7 @@ impl Default for Config {
             catch_up_on_start: true,
             warn_days_before_end: 7,
             last_triggered_date: None,
+            autostart: true,
         }
     }
 }
