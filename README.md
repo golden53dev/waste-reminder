@@ -17,15 +17,25 @@ Przykładowy plik z danymi (`data/trash_schedule_2026.json`) należy skopiować 
 
 ---
 
-## 2. macOS – Uruchomienie aplikacji niepodpisanej (Gatekeeper)
+## 2. macOS — pobranie i instalacja wydania
 
-Przy pierwszym uruchomieniu pobranej paczki `.app` / `.dmg` system macOS może wyświetlić komunikat o nieznanym deweloperze:
-1. Kliknij na plik aplikacji **prawym przyciskiem myszy** (lub przytrzymaj klawisz `Control` i kliknij).
-2. Z menu kontekstowego wybierz **Otwórz** (Open).
-3. W oknie dialogowym kliknij **Otwórz** (Open).
-Kolejne uruchomienia będą odbywać się standardowo.
+Wydania aplikacji: [GitHub Releases](https://github.com/golden53dev/waste-reminder/releases). Dla Maca pobierz plik `.dmg` z najnowszego wydania (np. `waste-reminder_0.1.1_universal.dmg`). Wersja universal działa na Macach z procesorem Apple Silicon oraz Intel.
 
----
+1. Otwórz stronę [Releases](https://github.com/golden53dev/waste-reminder/releases) i wybierz najnowsze wydanie `Waste Reminder v0.1.1`.
+2. W sekcji **Assets** pobierz plik `.dmg`. Jeśli wydanie jest oznaczone jako **Draft**, musi je najpierw opublikować właściciel repozytorium przyciskiem **Publish release**.
+3. Otwórz pobrany obraz `.dmg`. W oknie instalatora przeciągnij `waste-reminder.app` do folderu **Applications** (`Programy`).
+4. Wysuń obraz instalatora, a następnie uruchom **Waste Reminder** z folderu **Applications**.
+5. Aplikacja działa w pasku menu macOS; nie pokazuje ikony w Docku. Kliknij jej ikonę w pasku menu, aby otworzyć opcje, przetestować alarm albo zaimportować harmonogram.
+
+### Pierwsze uruchomienie macOS
+
+Wydanie nie jest podpisane certyfikatem Apple Developer, więc Gatekeeper może zablokować pierwsze uruchomienie. W Finderze otwórz folder **Applications**, kliknij aplikację prawym przyciskiem myszy (lub `Control` + kliknięcie), wybierz **Open / Otwórz**, a następnie potwierdź **Open / Otwórz** w oknie systemowym. Jeśli tej opcji nie ma, spróbuj uruchomić aplikację raz, a potem wybierz **System Settings → Privacy & Security → Open Anyway**.
+
+### Harmonogram na Macu
+
+Przy pierwszym uruchomieniu aplikacja kopiuje do swojego katalogu konfiguracji przykładowy harmonogram `2026` dla regionu **Olesno II**, jeśli nie ma tam jeszcze żadnego harmonogramu. Jeżeli mieszkasz w innym regionie, kliknij ikonę Waste Reminder w pasku menu i wybierz **Wczytaj nowy JSON...**, a następnie wskaż swój plik harmonogramu. Plik musi być zgodny ze schematem aplikacji. Możesz też umieścić go ręcznie w `~/Library/Application Support/com.app.waste-reminder/` pod nazwą `trash_schedule_RRRR.json`, np. `trash_schedule_2026.json`.
+
+Wbudowany alarm `alarm.mp3` jest używany automatycznie. Nie trzeba pobierać go osobno.
 
 ## 3. Skrypty wybudzania systemu (scripts/)
 

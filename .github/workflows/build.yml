@@ -17,10 +17,6 @@ jobs:
         include:
           - platform: 'macos-latest'
             args: '--target universal-apple-darwin'
-          - platform: 'ubuntu-22.04'
-            args: ''
-          - platform: 'windows-latest'
-            args: ''
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -75,8 +71,7 @@ jobs:
           if-no-files-found: ignore
 
   build-arch:
-    needs: build-tauri
-    if: always() && (needs.build-tauri.result == 'success' || needs.build-tauri.result == 'skipped')
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-22.04
     container:
       image: archlinux:latest
@@ -126,14 +121,6 @@ jobs:
           useradd --create-home builder
           chown -R builder:builder pkg_build
           su builder -c "cd pkg_build && makepkg --nodeps --noconfirm --cleanbuild"
-
-      - name: Upload Arch package to Release
-        if: github.event_name == 'push'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          gh release upload "v${VERSION}" pkg_build/*.pkg.tar.zst --clobber
 
       - name: Upload Arch Artifact
         uses: actions/upload-artifact@v5
