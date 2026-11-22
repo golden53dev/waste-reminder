@@ -1,0 +1,74 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Harmonogram wygasł</title>
+    <link rel="stylesheet" href="common.css" />
+    <style>
+      body.expired-page {
+        margin: 0;
+        padding: 24px;
+        background: #1e1e24;
+        color: #f0f0f0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        height: 100vh;
+        gap: 16px;
+      }
+      h2 {
+        margin: 0;
+        font-size: 20px;
+        color: #f87171;
+      }
+      p {
+        margin: 0;
+        font-size: 14px;
+        color: #d1d5db;
+        max-width: 340px;
+        line-height: 1.4;
+      }
+      button.btn-primary {
+        background: #2563eb;
+        border: none;
+        color: #fff;
+        padding: 10px 20px;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background 0.15s ease;
+      }
+      button.btn-primary:hover {
+        background: #1d4ed8;
+      }
+      button.btn-sec {
+        background: #34343e;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        color: #fff;
+        padding: 6px 14px;
+        border-radius: 6px;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      #status-msg {
+        font-size: 13px;
+        min-height: 20px;
+        max-width: 360px;
+        word-break: break-word;
+      }
+    </style>
+  </head>
+  <body class="expired-page">
+    <h2>Harmonogram wygasł</h2>
+    <p>Aktualny harmonogram wywozu odpadów dobiegł końca. Wczytaj nowy plik JSON z harmonogramem na bieżący rok.</p>
+    <button id="btn-import" class="btn-primary" type="button">Wczytaj nowy JSON</button>
+    <div id="status-msg"></div>
+    <button id="btn-close" class="btn-sec" type="button">Zamknij</button>
+    <script src="expired.js"></script>
+  </body>
+</html>
