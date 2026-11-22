@@ -2,16 +2,13 @@ name: Build and Release
 
 on:
   push:
-    branches:
-      - master
-      - main
     tags:
       - 'v*'
-  pull_request:
   workflow_dispatch:
 
 jobs:
   build-tauri:
+    if: github.event_name == 'push'
     permissions:
       contents: write
     strategy:
@@ -28,12 +25,12 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 24
           cache: 'npm'
 
       - name: Install Rust stable
@@ -65,7 +62,7 @@ jobs:
           args: ${{ matrix.args }}
 
       - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: binaries-${{ matrix.platform }}
           path: |
@@ -79,6 +76,7 @@ jobs:
 
   build-arch:
     needs: build-tauri
+    if: always() && (needs.build-tauri.result == 'success' || needs.build-tauri.result == 'skipped')
     runs-on: ubuntu-22.04
     container:
       image: archlinux:latest
@@ -89,7 +87,10 @@ jobs:
         run: pacman -Syu --noconfirm --needed base-devel git nodejs npm rust webkit2gtk-4.1 libayatana-appindicator librsvg github-cli
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+
+      - name: Mark workspace as a safe Git directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Build Tauri binary
         run: |
@@ -133,3 +134,9 @@ jobs:
         run: |
           VERSION=$(node -p "require('./package.json').version")
           gh release upload "v${VERSION}" pkg_build/*.pkg.tar.zst --clobber
+
+      - name: Upload Arch Artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: binaries-archlinux
+          path: pkg_build/*.pkg.tar.zst
