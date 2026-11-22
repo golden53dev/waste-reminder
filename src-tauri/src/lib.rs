@@ -7,6 +7,24 @@ mod config;
 mod schedule;
 mod scheduler;
 
+const DEFAULT_SCHEDULE: &str = include_str!("../../data/trash_schedule_2026.json");
+
+fn install_default_schedule_if_missing(dir: &std::path::Path) -> Result<(), std::io::Error> {
+    let has_schedule = std::fs::read_dir(dir)?.filter_map(Result::ok).any(|entry| {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        name.starts_with("trash_schedule_") && name.ends_with(".json")
+    });
+
+    if !has_schedule {
+        let schedule = schedule::Schedule::parse(DEFAULT_SCHEDULE)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        let path = dir.join(format!("trash_schedule_{}.json", schedule.year));
+        std::fs::write(path, DEFAULT_SCHEDULE)?;
+    }
+    Ok(())
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct FractionItem {
     pub key: String,
@@ -364,6 +382,7 @@ pub fn run() {
 
             let dir = app.path().app_config_dir()?;
             std::fs::create_dir_all(&dir)?;
+            install_default_schedule_if_missing(&dir)?;
 
             let config_path = dir.join("config.json");
             let cfg = config::Config::load(&config_path).unwrap_or_default();
