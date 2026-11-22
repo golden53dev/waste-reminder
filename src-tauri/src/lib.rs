@@ -2,6 +2,7 @@ use tauri::menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder};
 use tauri::tray::TrayIconBuilder;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_autostart::ManagerExt;
+use tauri_plugin_dialog::DialogExt;
 mod config;
 mod schedule;
 mod scheduler;
@@ -10,6 +11,12 @@ mod scheduler;
 pub struct FractionItem {
     pub key: String,
     pub label: String,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct SoundItem {
+    pub name: String,
+    pub path: String,
 }
 
 fn open_alarm_window(handle: &tauri::AppHandle, fullscreen: bool) {
@@ -43,7 +50,7 @@ fn open_options(app: tauri::AppHandle) -> Result<(), String> {
             WebviewUrl::App("options.html".into()),
         )
         .title("Waste Reminder - Opcje")
-        .inner_size(460.0, 520.0)
+        .inner_size(480.0, 560.0)
         .resizable(false)
         .center()
         .build()
@@ -60,6 +67,129 @@ fn get_config(app: tauri::AppHandle) -> Result<config::Config, String> {
         .map_err(|e| e.to_string())?
         .join("config.json");
     config::Config::load(&path)
+}
+
+#[tauri::command]
+fn save_config(app: tauri::AppHandle, updated: config::Config) -> Result<(), String> {
+    let path = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| e.to_string())?
+        .join("config.json");
+    let mut current = config::Config::load(&path).unwrap_or_default();
+    current.sound_file = updated.sound_file;
+    current.volume = updated.volume;
+    current.alert_time = updated.alert_time;
+    current.fullscreen = updated.fullscreen;
+    current.save(&path)?;
+    Ok(())
+}
+
+#[tauri::command]
+fn get_available_sounds() -> Vec<SoundItem> {
+    let mut list = vec![SoundItem {
+        name: "Domyślny (alarm.mp3)".to_string(),
+        path: "".to_string(),
+    }];
+
+    #[cfg(target_os = "windows")]
+    {
+        let win_media = std::path::Path::new(r"C:\Windows\Media");
+        if let Ok(entries) = std::fs::read_dir(win_media) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if let Some(ext) = p.extension() {
+                    if ext.to_string_lossy().to_lowercase() == "wav" {
+                        let name = p
+                            .file_stem()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string();
+                        list.push(SoundItem {
+                            name: format!("Windows: {}", name),
+                            path: p.to_string_lossy().to_string(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let mac_sounds = std::path::Path::new("/System/Library/Sounds");
+        if let Ok(entries) = std::fs::read_dir(mac_sounds) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if let Some(ext) = p.extension() {
+                    let ext_str = ext.to_string_lossy().to_lowercase();
+                    if ext_str == "aiff" || ext_str == "wav" {
+                        let name = p
+                            .file_stem()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string();
+                        list.push(SoundItem {
+                            name: format!("macOS: {}", name),
+                            path: p.to_string_lossy().to_string(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        fn scan_dir(dir: &std::path::Path, list: &mut Vec<SoundItem>, depth: u32) {
+            if depth > 2 {
+                return;
+            }
+            if let Ok(entries) = std::fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p.is_dir() {
+                        scan_dir(&p, list, depth + 1);
+                    } else if let Some(ext) = p.extension() {
+                        let ext_str = ext.to_string_lossy().to_lowercase();
+                        if ext_str == "ogg" || ext_str == "oga" || ext_str == "wav" {
+                            let name = p
+                                .file_stem()
+                                .unwrap_or_default()
+                                .to_string_lossy()
+                                .to_string();
+                            list.push(SoundItem {
+                                name: format!("Linux: {}", name),
+                                path: p.to_string_lossy().to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        scan_dir(std::path::Path::new("/usr/share/sounds"), &mut list, 0);
+    }
+
+    list
+}
+
+#[tauri::command]
+async fn pick_sound_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let res = tauri::async_runtime::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .add_filter("Dźwięki", &["mp3", "wav", "ogg", "aiff", "flac"])
+            .blocking_pick_file()
+            .map(|p| p.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(res)
+}
+
+#[tauri::command]
+fn close_window(window: tauri::WebviewWindow) -> Result<(), String> {
+    window.close().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -118,6 +248,7 @@ fn alarm_fractions(app: tauri::AppHandle) -> Result<Vec<FractionItem>, String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {
             // Druga kopia appki zamyka się bez alarmu
         }))
@@ -244,7 +375,11 @@ pub fn run() {
             ack_alarm,
             alarm_fractions,
             open_options,
-            get_config
+            get_config,
+            save_config,
+            get_available_sounds,
+            pick_sound_file,
+            close_window
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
