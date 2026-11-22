@@ -76,3 +76,60 @@ jobs:
             src-tauri/target/release/bundle/appimage/*.AppImage
             src-tauri/target/release/bundle/deb/*.deb
           if-no-files-found: ignore
+
+  build-arch:
+    needs: build-tauri
+    runs-on: ubuntu-22.04
+    container:
+      image: archlinux:latest
+    permissions:
+      contents: write
+    steps:
+      - name: Install build dependencies
+        run: pacman -Syu --noconfirm --needed base-devel git nodejs npm rust webkit2gtk-4.1 libayatana-appindicator librsvg github-cli
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build Tauri binary
+        run: |
+          npm ci
+          npm run tauri build -- --no-bundle
+
+      - name: Package Arch Linux (.pkg.tar.zst)
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          mkdir -p pkg_build
+          install -Dm755 src-tauri/target/release/waste-reminder pkg_build/waste-reminder
+          cat > pkg_build/waste-reminder.desktop <<'EOF'
+          [Desktop Entry]
+          Name=Waste Reminder
+          Exec=waste-reminder
+          Type=Application
+          Categories=Utility;
+          EOF
+
+          cat > pkg_build/PKGBUILD <<EOF
+          pkgname=waste-reminder
+          pkgver=${VERSION}
+          pkgrel=1
+          arch=('x86_64')
+          pkgdesc="Waste Reminder desktop application"
+          depends=('webkit2gtk-4.1' 'libayatana-appindicator' 'librsvg')
+          package() {
+            install -Dm755 "\$startdir/waste-reminder" "\$pkgdir/usr/bin/waste-reminder"
+            install -Dm644 "\$startdir/waste-reminder.desktop" "\$pkgdir/usr/share/applications/waste-reminder.desktop"
+          }
+          EOF
+
+          useradd --create-home builder
+          chown -R builder:builder pkg_build
+          su builder -c "cd pkg_build && makepkg --nodeps --noconfirm --cleanbuild"
+
+      - name: Upload Arch package to Release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          gh release upload "v${VERSION}" pkg_build/*.pkg.tar.zst --clobber
