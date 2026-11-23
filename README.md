@@ -2,6 +2,7 @@
 
 Aplikacja przypominająca o terminach wywozu odpadów komunalnych dla systemu macOS, Windows i Linux. Aplikacja działa dyskretnie w zasobniku systemowym (tray), powiadamia o zbiórkach odpadów w dniu wywozu i pozwala zaplanować wybudzanie komputera.
 
+https://github.com/golden53dev/waste-reminder/releases/
 ---
 
 ## 1. Instalacja i dane harmonogramu
